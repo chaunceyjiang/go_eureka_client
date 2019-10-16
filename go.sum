@@ -1,0 +1,4 @@
+github.com/gxed/GoEndian v0.0.0-20160916112711-0f5c6873267e h1:eIhARPSF2zPr1hKxiL81XWQ392f5stEEcs38UzZVSWo=
+github.com/gxed/GoEndian v0.0.0-20160916112711-0f5c6873267e/go.mod h1:vckkIQ0K+GGne8aC4LseYg586YwBQhOxXMXGAmKsCdY=
+github.com/gxed/eventfd v0.0.0-20160916113412-80a92cca79a8 h1:N97hyGE4Q7bfXLQHvCtVvhLA9ofDkh5nzFcaB+1kLic=
+github.com/gxed/eventfd v0.0.0-20160916113412-80a92cca79a8/go.mod h1:UNZeDpt9TUOMKVo89Fm0D2Ql3htmIN8BzxIcQcmogzs=
