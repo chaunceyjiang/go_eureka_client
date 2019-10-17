@@ -37,14 +37,31 @@ func RenewalIntervalInSecs(s int64) Option {
 	}
 }
 
-func InstanceID(InstanceID string) Option {
+func InstanceIp(ip string) Option {
 	return func(instance *Instance) {
-		instance.InstanceID = InstanceID
+		instance.IPAddr = ip
 	}
 }
 
 func AppName(app string) Option {
 	return func(instance *Instance) {
 		instance.App = app
+	}
+}
+func InstanceHost(host string) Option {
+	return func(instance *Instance) {
+		instance.HostName = host
+	}
+}
+
+func InstancePort(port int) Option {
+	return func(instance *Instance) {
+		instance.Port.Value = port
+	}
+}
+
+func InstanceID(id string) Option {
+	return func(instance *Instance) {
+		instance.InstanceID = id
 	}
 }

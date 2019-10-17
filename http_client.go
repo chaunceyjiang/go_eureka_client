@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -13,7 +14,7 @@ import (
 )
 
 type Port struct {
-	Attr    int  `json:"$"`
+	Value   int  `json:"$"`
 	Enabled bool `json:"@enabled"`
 }
 
@@ -30,7 +31,7 @@ type LeaseInfo struct {
 	ServiceUpTimestamp    int64 `json:"serviceUpTimestamp"`
 }
 type Metadata struct {
-	Attr           int `json:"$"`
+	//Attr           int `json:"$"`
 	ManagementPort int `json:"management.port"`
 }
 type Instance struct {
@@ -57,6 +58,10 @@ type Instance struct {
 	ActionType                    string         `json:"actionType"`
 }
 
+type Application struct {
+	Instance Instance `json:"instance"`
+}
+
 type Option func(*Instance)
 
 func newOptions(opts ...Option) *Instance {
@@ -67,12 +72,12 @@ func newOptions(opts ...Option) *Instance {
 		IPAddr:                        "",
 		Status:                        "",
 		Overriddenstatus:              "",
-		Port:                          Port{Attr: _DEFAULT_INSTNACE_PORT, Enabled: true},
-		SecurePort:                    Port{Attr: _DEFAULT_INSTNACE_SECURE_PORT, Enabled: false},
+		Port:                          Port{Value: _DEFAULT_INSTNACE_PORT, Enabled: true},
+		SecurePort:                    Port{Value: _DEFAULT_INSTNACE_SECURE_PORT, Enabled: false},
 		CountryID:                     1,
 		DataCenterInfo:                DataCenterInfo{Class: _DEFAULT_DATA_CENTER_INFO_CLASS, Name: _DEFAULT_DATA_CENTER_INFO},
 		LeaseInfo:                     LeaseInfo{RenewalIntervalInSecs: _RENEWAL_INTERVAL_IN_SECS, DurationInSecs: _DURATION_IN_SECS},
-		Metadata:                      Metadata{Attr: _DEFAULT_INSTNACE_PORT},
+		Metadata:                      Metadata{ManagementPort: _DEFAULT_INSTNACE_PORT},
 		HomePageURL:                   "",
 		StatusPageURL:                 "",
 		HealthCheckURL:                "",
@@ -87,22 +92,6 @@ func newOptions(opts ...Option) *Instance {
 		o(opt)
 	}
 
-	if opt.HomePageURL == "" {
-
-	}
-	if opt.StatusPageURL == "" {
-
-	}
-
-	if opt.HealthCheckURL == "" {
-
-	}
-	if opt.VipAddress == "" {
-		opt.VipAddress = strings.ToLower(opt.App)
-	}
-	if opt.SecureVipAddress == "" {
-		opt.SecureVipAddress = strings.ToLower(opt.App)
-	}
 	return opt
 }
 func newInstance(opts ...Option) *Instance {
@@ -122,23 +111,69 @@ type RegistryClient struct {
 }
 
 func (client *RegistryClient) Register(status, overriddenstatus instanceStatus) {
-	if status == "" {
-		status = INSTANCE_STATUS_UP
-	}
-	if overriddenstatus == "" {
-		overriddenstatus = INSTANCE_STATUS_UNKNOWN
-	}
+
+	client.callAllEurekaServer(func(url string) error {
+		return client.setClientDefault(url)
+	})
+
 	client.callAllEurekaServer(func(url string) error {
 		return client.httpClient.Register(url, client.instance)
 	})
-	client.instance.Status = string(status)
-	client.instance.Overriddenstatus = string(overriddenstatus)
+
 	client.lock.Lock()
 	client.alive = true
 	client.lock.Unlock()
 }
-
-func (client *RegistryClient) callAllEurekaServer(f func(url string) error)  {
+func (client *RegistryClient) setClientDefault(urls string) error {
+	u, err := url.Parse(client.eurekaSevers[0])
+	if err != nil {
+		return err
+	}
+	if client.instance.Status == "" {
+		client.instance.Status = string(INSTANCE_STATUS_UP)
+	}
+	if client.instance.Overriddenstatus == "" {
+		client.instance.Overriddenstatus = string(INSTANCE_STATUS_UNKNOWN)
+	}
+	if client.instance.IPAddr == "" {
+		client.instance.IPAddr = u.Hostname()
+	}
+	if client.instance.HostName == "" {
+		client.instance.HostName = u.Hostname()
+	}
+	if client.instance.InstanceID == "" {
+		client.instance.InstanceID = fmt.Sprintf("%s:%s:%d", client.instance.HostName, client.instance.App, client.instance.Port.Value)
+	}
+	if client.instance.VipAddress == "" {
+		client.instance.VipAddress = strings.ToLower(client.instance.App)
+	}
+	if client.instance.SecureVipAddress == "" {
+		client.instance.SecureVipAddress = strings.ToLower(client.instance.App)
+	}
+	if client.instance.HomePageURL == "" {
+		u.Path = ""
+		client.instance.HomePageURL = u.String()
+	}
+	if client.instance.StatusPageURL == "" {
+		u.Path = "info"
+		client.instance.StatusPageURL = u.String()
+	}
+	if client.instance.HealthCheckURL == "" {
+		u.Path = "health"
+		client.instance.HealthCheckURL = u.String()
+	}
+	if client.instance.LastDirtyTimestamp == 0 {
+		client.instance.LastDirtyTimestamp = time.Now().UnixNano() / 1e6
+	}
+	if client.instance.LastUpdatedTimestamp == 0 {
+		client.instance.LastUpdatedTimestamp = time.Now().UnixNano() / 1e6
+	}
+	if client.instance.ActionType == "" {
+		client.instance.ActionType = string(ACTION_TYPE_ADDED)
+	}
+	return nil
+}
+func (client *RegistryClient) callAllEurekaServer(f func(url string) error) {
 	for _, url := range client.eurekaSevers {
 		err := f(url)
 		if err != nil {
@@ -148,7 +183,10 @@ func (client *RegistryClient) callAllEurekaServer(f func(url string) error)  {
 
 }
 func (client *RegistryClient) sendHeartbeat() {
-
+	client.callAllEurekaServer(func(url string) error {
+		return client.httpClient.SendHeartBeat(url, client.instance.App,
+			client.instance.InstanceID, client.instance.LastDirtyTimestamp, instanceStatus(client.instance.Status), "")
+	})
 }
 func (client *RegistryClient) heartbeat() {
 	ticker := time.NewTicker(time.Duration(client.instance.LeaseInfo.RenewalIntervalInSecs) * time.Second)
@@ -194,6 +232,9 @@ func (client *RegistryClient) Stop() {
 	}
 }
 func NewRegistryClient(eurekaServer []string, appName Option, opts ...Option) *RegistryClient {
+	if len(eurekaServer) == 0 {
+		panic("eurekaServer 为空")
+	}
 	opts = append(opts, appName)
 	instance := newInstance(opts...)
 	return &RegistryClient{
@@ -219,7 +260,8 @@ type IHttpClient interface {
 
 func (h *HttpClient) Register(eurekaServer string, instance *Instance) error {
 	client := &http.Client{Timeout: time.Duration(_DEFAULT_TIME_OUT) * time.Second}
-	data, err := json.Marshal(instance)
+	app:=&Application{*instance}
+	data, err := json.Marshal(app)
 	if err != nil {
 		return err
 	}
